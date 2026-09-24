@@ -49,11 +49,21 @@ class FastProxyHandler(http.server.BaseHTTPRequestHandler):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length) if content_length > 0 else None
 
-        # Model name translation
-        if body and self.target_model:
+        # Model name translation & tool casing map
+        tool_map = {}
+        if body:
             try:
                 payload = json.loads(body.decode("utf-8"))
-                if "model" in payload:
+                # Build canonical tool map for case-insensitive & hyphen-normalized resolution
+                if "tools" in payload and isinstance(payload["tools"], list):
+                    for t in payload["tools"]:
+                        t_name = t.get("name")
+                        if t_name:
+                            tool_map[t_name.lower()] = t_name
+                            tool_map[t_name.lower().replace("-", "_")] = t_name
+                            tool_map[t_name.lower().replace("__", "_")] = t_name
+
+                if self.target_model and "model" in payload:
                     orig_model = payload["model"]
                     payload["model"] = self.target_model
                     body = json.dumps(payload).encode("utf-8")
@@ -102,12 +112,32 @@ class FastProxyHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Keep-Alive", "timeout=120, max=1000")
 
             if resp_content_length is not None and not is_stream:
-                self.send_header("Content-Length", resp_content_length)
+                resp_body = resp.data
+                if tool_map and b"tool_use" in resp_body:
+                    try:
+                        text = resp_body.decode("utf-8")
+                        modified = False
+                        for lower_name, canonical_name in tool_map.items():
+                            if lower_name != canonical_name:
+                                p1 = f'"name":"{lower_name}"'
+                                r1 = f'"name":"{canonical_name}"'
+                                if p1 in text:
+                                    text = text.replace(p1, r1)
+                                    modified = True
+                                p2 = f'"name": "{lower_name}"'
+                                r2 = f'"name": "{canonical_name}"'
+                                if p2 in text:
+                                    text = text.replace(p2, r2)
+                                    modified = True
+                        if modified:
+                            resp_body = text.encode("utf-8")
+                            self.log_message("Normalized tool use casing in fixed response")
+                    except Exception:
+                        pass
+                self.send_header("Content-Length", str(len(resp_body)))
                 self.end_headers()
                 try:
-                    for chunk in resp.stream(amt=4096, decode_content=False):
-                        if chunk:
-                            self.wfile.write(chunk)
+                    self.wfile.write(resp_body)
                     self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError, socket.error):
                     self.log_message("Client disconnected while reading fixed response")
@@ -121,6 +151,28 @@ class FastProxyHandler(http.server.BaseHTTPRequestHandler):
                     for chunk in resp.stream(amt=None, decode_content=False):
                         if chunk:
                             chunk_count += 1
+                            if tool_map and b"tool_use" in chunk:
+                                try:
+                                    chunk_text = chunk.decode("utf-8")
+                                    modified = False
+                                    for lower_name, canonical_name in tool_map.items():
+                                        if lower_name != canonical_name:
+                                            p1 = f'"name":"{lower_name}"'
+                                            r1 = f'"name":"{canonical_name}"'
+                                            if p1 in chunk_text:
+                                                chunk_text = chunk_text.replace(p1, r1)
+                                                modified = True
+                                            p2 = f'"name": "{lower_name}"'
+                                            r2 = f'"name": "{canonical_name}"'
+                                            if p2 in chunk_text:
+                                                chunk_text = chunk_text.replace(p2, r2)
+                                                modified = True
+                                    if modified:
+                                        chunk = chunk_text.encode("utf-8")
+                                        self.log_message("Normalized tool use casing in stream")
+                                except Exception:
+                                    pass
+
                             chunk_len = f"{len(chunk):X}\r\n".encode("ascii")
                             self.wfile.write(chunk_len + chunk + b"\r\n")
                             self.wfile.flush()
