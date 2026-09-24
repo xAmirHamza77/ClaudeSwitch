@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct MainView: View {
-    @StateObject private var state = AppState()
+    @ObservedObject var state: AppState = AppState.shared
 
     var body: some View {
         VStack(spacing: 0) {

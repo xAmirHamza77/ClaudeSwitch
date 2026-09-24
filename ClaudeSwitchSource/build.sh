@@ -38,6 +38,8 @@ cat <<EOF > "$APP_DIR/Contents/Info.plist"
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>LSUIElement</key>
+    <true/>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsArbitraryLoads</key>

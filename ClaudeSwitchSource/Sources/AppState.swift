@@ -20,6 +20,8 @@ enum PresetKind: String, CaseIterable, Identifiable {
 }
 
 class AppState: ObservableObject {
+    static let shared = AppState()
+
     @Published var selectedTab: Int = 0
 
     // MARK: - Current Form State

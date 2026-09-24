@@ -6,6 +6,7 @@
 
 ## Key Features
 
+- **Menu Bar Background Agent**: Lives silently in your macOS top menu bar (`LSUIElement`) without cluttering your Dock. Keep the proxy running in the background, switch profiles with one click, monitor proxy/Claude status, and restart Claude Desktop directly from the menu item. Closing the window keeps the proxy and background keep-alive active.
 - **Any Gateway & Custom Endpoint**: Connect Claude Desktop to local endpoints (Ollama, vLLM, LiteLLM) or remote providers (Modal, DeepSeek, AgentRouter, self-hosted gateways).
 - **HTTP Loopback Proxy & HTTPS Bypass**: Claude Desktop strictly blocks remote non-loopback HTTP endpoints (*"must use https or http on loopback"*). ClaudeSwitch includes a built-in, lightweight loopback forwarder listening on `127.0.0.1` with:
   - **HTTP/1.1 Persistent Keep-Alive**: Prevents socket drops and watchdog timeouts.
