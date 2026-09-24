@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Claude Desktop Backups
+.claude_desktop_backups/
+*.log
+
+# Xcode / Swift
+.build/
+*.xcuserstate
+xcuserdata/
+DerivedData/
+
+# Archives
+*.zip
