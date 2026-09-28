@@ -10,6 +10,7 @@ enum StatusKind {
 }
 
 enum PresetKind: String, CaseIterable, Identifiable {
+    case openRouter = "OpenRouter (Space Bunny / Custom)"
     case modalDeepSeek = "DeepSeek V4.1 Flash (Modal)"
     case localOllama = "Local Ollama (HTTP Loopback)"
     case localVllm = "Local vLLM / LiteLLM (HTTP Loopback)"
@@ -92,6 +93,16 @@ class AppState: ObservableObject {
     func applyPreset(_ preset: PresetKind) {
         self.selectedPreset = preset
         switch preset {
+        case .openRouter:
+            self.profileId = "00000000-0000-4000-8000-000000157210"
+            self.profileName = "Space Bunny (OpenRouter)"
+            self.baseUrl = "https://openrouter.ai/api"
+            self.apiKey = ""
+            self.authScheme = "bearer"
+            self.wireModel = "anthropic/stealth/space-bunny-alpha"
+            self.displayLabel = "stealth/space-bunny-alpha"
+            self.modelDiscoveryEnabled = false
+
         case .modalDeepSeek:
             self.profileId = "00000000-0000-4000-8000-000000000001"
             self.profileName = "DeepSeek Flash (Modal)"
@@ -159,6 +170,20 @@ class AppState: ObservableObject {
             cleanUrl = String(cleanUrl.dropLast(3))
         }
 
+        // Auto-fix OpenRouter base URL (must point to /api so Claude's /v1/messages matches OpenRouter's /api/v1/messages)
+        if cleanUrl.lowercased() == "https://openrouter.ai" || cleanUrl.lowercased() == "http://openrouter.ai" {
+            cleanUrl = "https://openrouter.ai/api"
+        }
+
+        // Auto-fix wireModel for OpenRouter to satisfy Claude Desktop's Anthropic model check
+        var finalWireModel = wireModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleanUrl.contains("openrouter.ai") {
+            let lower = finalWireModel.lowercased()
+            if !lower.contains("anthropic") && !lower.contains("claude") && !lower.contains("sonnet") && !lower.contains("opus") && !lower.contains("haiku") {
+                finalWireModel = "anthropic/\(finalWireModel)"
+            }
+        }
+
         return ProfileConfig(
             inferenceGatewayBaseUrl: cleanUrl,
             inferenceGatewayApiKey: apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -167,7 +192,7 @@ class AppState: ObservableObject {
             modelPrefer1mContext: false,
             inferenceModels: [
                 InferenceModel(
-                    name: wireModel.trimmingCharacters(in: .whitespacesAndNewlines),
+                    name: finalWireModel,
                     labelOverride: displayLabel.trimmingCharacters(in: .whitespacesAndNewlines),
                     supports1m: false
                 )
