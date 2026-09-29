@@ -10,6 +10,7 @@ enum StatusKind {
 }
 
 enum PresetKind: String, CaseIterable, Identifiable {
+    case artBloom = "ArtBloom (Claude Opus 5.5)"
     case openRouter = "OpenRouter (Space Bunny / Custom)"
     case modalDeepSeek = "DeepSeek V4.1 Flash (Modal)"
     case localOllama = "Local Ollama (HTTP Loopback)"
@@ -93,6 +94,16 @@ class AppState: ObservableObject {
     func applyPreset(_ preset: PresetKind) {
         self.selectedPreset = preset
         switch preset {
+        case .artBloom:
+            self.profileId = "00000000-0000-4000-8000-000000157211"
+            self.profileName = "Claude Opus 5.5 (ArtBloom)"
+            self.baseUrl = "https://api.artbloom.tech"
+            self.apiKey = ""
+            self.authScheme = "bearer"
+            self.wireModel = "claude-opus-5-5"
+            self.displayLabel = "claude-opus-5.5"
+            self.modelDiscoveryEnabled = false
+
         case .openRouter:
             self.profileId = "00000000-0000-4000-8000-000000157210"
             self.profileName = "Space Bunny (OpenRouter)"
