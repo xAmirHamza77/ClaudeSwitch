@@ -10,6 +10,7 @@ enum StatusKind {
 }
 
 enum PresetKind: String, CaseIterable, Identifiable {
+    case codeCraft = "CodeCraft (Claude Opus 5.5)"
     case artBloom = "ArtBloom (Claude Opus 5.5)"
     case openRouter = "OpenRouter (Space Bunny / Custom)"
     case modalDeepSeek = "DeepSeek V4.1 Flash (Modal)"
@@ -94,6 +95,18 @@ class AppState: ObservableObject {
     func applyPreset(_ preset: PresetKind) {
         self.selectedPreset = preset
         switch preset {
+        case .codeCraft:
+            self.profileId = "00000000-0000-4000-8000-000000157212"
+            self.profileName = "CodeCraft (Claude Opus 5.5)"
+            self.baseUrl = "http://127.0.0.1:8080"
+            self.apiKey = ""
+            self.authScheme = "bearer"
+            self.wireModel = "claude-opus-5.5"
+            self.displayLabel = "claude-opus-5.5"
+            self.modelDiscoveryEnabled = false
+            ProxyManager.shared.targetUrl = "https://codecraftapi.com/v1"
+            ProxyManager.shared.targetModel = "claude-opus-5.5"
+
         case .artBloom:
             self.profileId = "00000000-0000-4000-8000-000000157211"
             self.profileName = "Claude Opus 5.5 (ArtBloom)"

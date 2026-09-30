@@ -7,6 +7,7 @@ import time
 import json
 import socket
 import urllib3
+import uuid
 
 # High-performance connection pool with upstream keep-alive
 pool = urllib3.PoolManager(
@@ -71,6 +72,10 @@ class FastProxyHandler(http.server.BaseHTTPRequestHandler):
                         self.log_message("Rewrote model '%s' -> '%s'", orig_model, self.target_model)
             except Exception:
                 pass
+
+        if self._is_openai_target() and body:
+            self._forward_openai_bridge(body, tool_map)
+            return
 
         target = self.target_url.rstrip("/") + self.path
 
@@ -193,6 +198,176 @@ class FastProxyHandler(http.server.BaseHTTPRequestHandler):
         except Exception as e:
             self.log_message("Error proxying request to %s: %s", target, str(e))
             self._send_error_safe(502, f"Loopback Forwarder Error connecting to {target}: {str(e)}")
+
+    def _is_openai_target(self):
+        t = self.target_url.lower()
+        return "chat/completions" in t or "codecraftapi.com" in t or getattr(self, "force_openai_bridge", False)
+
+    def _write_chunk(self, data_bytes):
+        chunk_len = f"{len(data_bytes):X}\r\n".encode("ascii")
+        self.wfile.write(chunk_len + data_bytes + b"\r\n")
+        self.wfile.flush()
+
+    def _forward_openai_bridge(self, body, tool_map):
+        try:
+            payload = json.loads(body.decode("utf-8")) if body else {}
+        except Exception:
+            payload = {}
+
+        # Resolve upstream chat completions URL
+        clean_target = self.target_url.rstrip("/")
+        if clean_target.endswith("/chat/completions"):
+            target = clean_target
+        elif clean_target.endswith("/v1"):
+            target = clean_target + "/chat/completions"
+        else:
+            target = clean_target + "/v1/chat/completions"
+
+        # Translate Anthropic messages -> OpenAI messages
+        oai_messages = []
+        if "system" in payload and payload["system"]:
+            sys_val = payload["system"]
+            if isinstance(sys_val, list):
+                sys_text = "\n".join([b.get("text", "") for b in sys_val if isinstance(b, dict) and b.get("type") == "text"])
+            else:
+                sys_text = str(sys_val)
+            oai_messages.append({"role": "system", "content": sys_text})
+
+        for m in payload.get("messages", []):
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if isinstance(content, list):
+                parts = []
+                for b in content:
+                    if isinstance(b, dict) and b.get("type") == "text":
+                        parts.append(b.get("text", ""))
+                    elif isinstance(b, str):
+                        parts.append(b)
+                content = "\n".join(parts)
+            oai_messages.append({"role": role, "content": content})
+
+        model = self.target_model if self.target_model else payload.get("model", "claude-opus-5.5")
+        is_stream = payload.get("stream", True)
+        oai_req = {
+            "model": model,
+            "messages": oai_messages,
+            "stream": is_stream
+        }
+        if "max_tokens" in payload:
+            oai_req["max_tokens"] = payload["max_tokens"]
+        if "temperature" in payload:
+            oai_req["temperature"] = payload["temperature"]
+
+        # Forward authorization token
+        auth_token = self.headers.get("x-api-key") or self.headers.get("authorization") or ""
+        if auth_token.lower().startswith("bearer "):
+            auth_token = auth_token[7:].strip()
+
+        fwd_headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {auth_token}",
+            "Connection": "keep-alive"
+        }
+
+        try:
+            t0 = time.time()
+            resp = pool.request(
+                "POST",
+                target,
+                body=json.dumps(oai_req).encode("utf-8"),
+                headers=fwd_headers,
+                preload_content=False,
+                decode_content=False
+            )
+            ttfb = time.time() - t0
+
+            if resp.status != 200:
+                err_data = resp.data.decode("utf-8", errors="ignore")
+                self.log_message("OpenAI bridge upstream error (%d): %s", resp.status, err_data[:200])
+                self._send_error_safe(resp.status, f"Upstream OpenAI API error: {err_data[:200]}")
+                resp.release_conn()
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream" if is_stream else "application/json")
+            self.send_header("Connection", "keep-alive")
+            self.send_header("Keep-Alive", "timeout=120, max=1000")
+
+            if is_stream:
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+
+                msg_id = f"msg_{uuid.uuid4().hex[:20]}"
+                first_chunk = True
+                buffer = ""
+                chunk_count = 0
+                total_tokens = 0
+
+                try:
+                    for raw_chunk in resp.stream(amt=None, decode_content=False):
+                        buffer += raw_chunk.decode("utf-8", errors="ignore")
+                        while "\n" in buffer:
+                            line, buffer = buffer.split("\n", 1)
+                            line = line.strip()
+                            if line.startswith("data:"):
+                                data_str = line[5:].strip()
+                                if data_str == "[DONE]":
+                                    continue
+                                try:
+                                    data = json.loads(data_str)
+                                    delta = data["choices"][0].get("delta", {})
+                                    if "content" in delta and delta["content"]:
+                                        if first_chunk:
+                                            first_chunk = False
+                                            start_evt = f"event: message_start\ndata: {json.dumps({'type':'message_start','message':{'id':msg_id,'type':'message','role':'assistant','model':model,'content':[],'stop_reason':None,'stop_sequence':None,'usage':{'input_tokens':10,'output_tokens':0}}})}\n\n".encode("utf-8")
+                                            block_start = f"event: content_block_start\ndata: {json.dumps({'type':'content_block_start','index':0,'content_block':{'type':'text','text':''}})}\n\n".encode("utf-8")
+                                            self._write_chunk(start_evt)
+                                            self._write_chunk(block_start)
+                                        total_tokens += 1
+                                        delta_evt = f"event: content_block_delta\ndata: {json.dumps({'type':'content_block_delta','index':0,'delta':{'type':'text_delta','text':delta['content']}})}\n\n".encode("utf-8")
+                                        self._write_chunk(delta_evt)
+                                        chunk_count += 1
+                                except Exception:
+                                    pass
+
+                    if not first_chunk:
+                        block_stop = f"event: content_block_stop\ndata: {json.dumps({'type':'content_block_stop','index':0})}\n\n".encode("utf-8")
+                        msg_delta = f"event: message_delta\ndata: {json.dumps({'type':'message_delta','delta':{'stop_reason':'end_turn','stop_sequence':None},'usage':{'input_tokens':10,'output_tokens':total_tokens}})}\n\n".encode("utf-8")
+                        msg_stop = f"event: message_stop\ndata: {json.dumps({'type':'message_stop'})}\n\n".encode("utf-8")
+                        self._write_chunk(block_stop)
+                        self._write_chunk(msg_delta)
+                        self._write_chunk(msg_stop)
+
+                    # Final chunked terminator
+                    self.wfile.write(b"0\r\n\r\n")
+                    self.wfile.flush()
+                    self.log_message("OpenAI bridge stream completed: %d tokens in %.2fs (TTFB: %.2fs)", total_tokens, time.time() - t0, ttfb)
+                except (BrokenPipeError, ConnectionResetError, socket.error):
+                    self.log_message("Client disconnected during OpenAI bridge stream")
+            else:
+                resp_data = resp.data.decode("utf-8", errors="ignore")
+                oai_resp = json.loads(resp_data)
+                choice_text = oai_resp["choices"][0]["message"].get("content", "")
+                anthropic_resp = {
+                    "id": f"msg_{uuid.uuid4().hex[:20]}",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": model,
+                    "content": [{"type": "text", "text": choice_text}],
+                    "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 10, "output_tokens": len(choice_text.split())}
+                }
+                out_bytes = json.dumps(anthropic_resp).encode("utf-8")
+                self.send_header("Content-Length", str(len(out_bytes)))
+                self.end_headers()
+                self.wfile.write(out_bytes)
+                self.wfile.flush()
+
+            resp.release_conn()
+
+        except Exception as e:
+            self.log_message("Error in OpenAI bridge: %s", str(e))
+            self._send_error_safe(502, f"OpenAI Bridge Forwarder Error: {str(e)}")
 
     def _send_error_safe(self, code, msg):
         try:
