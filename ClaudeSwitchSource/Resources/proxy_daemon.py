@@ -87,6 +87,22 @@ class FastProxyHandler(http.server.BaseHTTPRequestHandler):
                 fwd_headers[key] = val
         fwd_headers["Connection"] = "keep-alive"
 
+        # Ensure both Authorization and x-api-key are set if either is provided
+        auth_hdr = fwd_headers.get("Authorization") or fwd_headers.get("authorization")
+        x_key_hdr = fwd_headers.get("x-api-key") or fwd_headers.get("X-Api-Key")
+        if auth_hdr and not x_key_hdr:
+            if auth_hdr.lower().startswith("bearer "):
+                fwd_headers["x-api-key"] = auth_hdr[7:].strip()
+        elif x_key_hdr and not auth_hdr:
+            fwd_headers["Authorization"] = f"Bearer {x_key_hdr}"
+
+        # OpenRouter client metadata headers
+        if "openrouter.ai" in self.target_url.lower():
+            if "HTTP-Referer" not in fwd_headers and "http-referer" not in fwd_headers:
+                fwd_headers["HTTP-Referer"] = "https://claude.ai"
+            if "X-Title" not in fwd_headers and "x-title" not in fwd_headers:
+                fwd_headers["X-Title"] = "Claude Desktop"
+
         try:
             t0 = time.time()
             resp = pool.request(
@@ -177,6 +193,14 @@ class FastProxyHandler(http.server.BaseHTTPRequestHandler):
                                         self.log_message("Normalized tool use casing in stream")
                                 except Exception:
                                     pass
+
+                            # Strip [DONE] marker if present (OpenRouter sends [DONE] at the end of SSE)
+                            if b"[DONE]" in chunk:
+                                lines = chunk.split(b"\n")
+                                filtered = [l for l in lines if l.strip() != b"data: [DONE]" and l.strip() != b"event: data"]
+                                chunk = b"\n".join(filtered)
+                                if not chunk.strip():
+                                    continue
 
                             chunk_len = f"{len(chunk):X}\r\n".encode("ascii")
                             self.wfile.write(chunk_len + chunk + b"\r\n")

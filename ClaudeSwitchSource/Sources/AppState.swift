@@ -120,12 +120,14 @@ class AppState: ObservableObject {
         case .openRouter:
             self.profileId = "00000000-0000-4000-8000-000000157210"
             self.profileName = "Space Bunny (OpenRouter)"
-            self.baseUrl = "https://openrouter.ai/api"
+            self.baseUrl = "http://127.0.0.1:8080"
             self.apiKey = ""
             self.authScheme = "bearer"
-            self.wireModel = "anthropic/stealth/space-bunny-alpha"
-            self.displayLabel = "stealth/space-bunny-alpha"
+            self.wireModel = "claude-3-5-sonnet"
+            self.displayLabel = "Space Bunny Alpha (OpenRouter)"
             self.modelDiscoveryEnabled = false
+            ProxyManager.shared.targetUrl = "https://openrouter.ai/api"
+            ProxyManager.shared.targetModel = "stealth/space-bunny-alpha"
 
         case .modalDeepSeek:
             self.profileId = "00000000-0000-4000-8000-000000000001"
