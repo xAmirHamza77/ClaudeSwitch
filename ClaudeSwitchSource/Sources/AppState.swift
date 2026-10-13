@@ -12,6 +12,7 @@ enum StatusKind {
 enum PresetKind: String, CaseIterable, Identifiable {
     case codeCraft = "CodeCraft (Claude Opus 5.5)"
     case artBloom = "ArtBloom (Claude Opus 5.5)"
+    case geminiArgon = "OpenRouter (Gemini 4 Argon)"
     case openRouter = "OpenRouter (Space Bunny / Custom)"
     case modalDeepSeek = "DeepSeek V4.1 Flash (Modal)"
     case localOllama = "Local Ollama (HTTP Loopback)"
@@ -116,6 +117,18 @@ class AppState: ObservableObject {
             self.wireModel = "claude-opus-5-5"
             self.displayLabel = "claude-opus-5.5"
             self.modelDiscoveryEnabled = false
+
+        case .geminiArgon:
+            self.profileId = "00000000-0000-4000-8000-000000157213"
+            self.profileName = "Gemini 4 Argon (OpenRouter)"
+            self.baseUrl = "http://127.0.0.1:8080"
+            self.apiKey = ""
+            self.authScheme = "bearer"
+            self.wireModel = "claude-3-5-sonnet"
+            self.displayLabel = "Gemini 4 Argon (OpenRouter)"
+            self.modelDiscoveryEnabled = false
+            ProxyManager.shared.targetUrl = "https://openrouter.ai/api"
+            ProxyManager.shared.targetModel = "google/gemini-4-argon"
 
         case .openRouter:
             self.profileId = "00000000-0000-4000-8000-000000157210"
