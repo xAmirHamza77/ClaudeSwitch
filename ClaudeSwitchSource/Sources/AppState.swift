@@ -14,6 +14,7 @@ enum PresetKind: String, CaseIterable, Identifiable {
     case artBloom = "ArtBloom (Claude Opus 5.5)"
     case geminiArgon = "OpenRouter (Gemini 4 Argon)"
     case openRouter = "OpenRouter (Space Bunny / Custom)"
+    case ollamaMiniMax = "Ollama Cloud (MiniMax M3.1 Flash)"
     case modalDeepSeek = "DeepSeek V4.1 Flash (Modal)"
     case localOllama = "Local Ollama (HTTP Loopback)"
     case localVllm = "Local vLLM / LiteLLM (HTTP Loopback)"
@@ -141,6 +142,18 @@ class AppState: ObservableObject {
             self.modelDiscoveryEnabled = false
             ProxyManager.shared.targetUrl = "https://openrouter.ai/api"
             ProxyManager.shared.targetModel = "stealth/space-bunny-alpha"
+
+        case .ollamaMiniMax:
+            self.profileId = "00000000-0000-4000-8000-000000157214"
+            self.profileName = "MiniMax M3.1 Flash (Ollama)"
+            self.baseUrl = "http://127.0.0.1:8080"
+            self.apiKey = ""
+            self.authScheme = "bearer"
+            self.wireModel = "claude-3-5-sonnet"
+            self.displayLabel = "MiniMax M3.1 Flash (Ollama Cloud)"
+            self.modelDiscoveryEnabled = false
+            ProxyManager.shared.targetUrl = "http://127.0.0.1:11434"
+            ProxyManager.shared.targetModel = "minimax-m3.1-flash:cloud"
 
         case .modalDeepSeek:
             self.profileId = "00000000-0000-4000-8000-000000000001"
