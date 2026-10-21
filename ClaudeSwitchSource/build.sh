@@ -60,6 +60,10 @@ if [ -f "$DIR/Resources/proxy_daemon.py" ]; then
     cp "$DIR/Resources/proxy_daemon.py" "$APP_DIR/Contents/Resources/proxy_daemon.py"
     chmod +x "$APP_DIR/Contents/Resources/proxy_daemon.py"
 fi
+if [ -f "$DIR/Resources/proxy_watchdog.py" ]; then
+    cp "$DIR/Resources/proxy_watchdog.py" "$APP_DIR/Contents/Resources/proxy_watchdog.py"
+    chmod +x "$APP_DIR/Contents/Resources/proxy_watchdog.py"
+fi
 
 # 4. Compile Swift sources
 echo "Compiling Swift sources..."

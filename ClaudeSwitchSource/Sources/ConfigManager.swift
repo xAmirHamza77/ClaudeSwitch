@@ -303,6 +303,22 @@ class ConfigManager {
         task.waitUntilExit()
 
         DispatchQueue.global().asyncAfter(deadline: .now() + 1.5) {
+            if let meta = self.loadMeta(),
+               let cfg = self.loadProfile(id: meta.appliedId) {
+                if cfg.inferenceGatewayBaseUrl.contains("127.0.0.1:8080") || cfg.inferenceGatewayBaseUrl.contains("localhost:8080") {
+                    ProxyManager.shared.syncConfigFile()
+                    ProxyManager.shared.ensureLaunchAgentInstalled()
+                    if !ProxyManager.shared.isRunning {
+                        let targetM = ProxyManager.shared.targetModel.isEmpty ? "high-availability" : ProxyManager.shared.targetModel
+                        ProxyManager.shared.startProxy(
+                            target: ProxyManager.shared.targetUrl,
+                            localPort: ProxyManager.shared.port,
+                            targetModel: targetM
+                        )
+                    }
+                }
+            }
+
             let openTask = Process()
             openTask.launchPath = "/usr/bin/open"
             openTask.arguments = ["-a", "Claude"]

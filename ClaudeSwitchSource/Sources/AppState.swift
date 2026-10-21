@@ -10,6 +10,7 @@ enum StatusKind {
 }
 
 enum PresetKind: String, CaseIterable, Identifiable {
+    case highAvailability = "High Availability (OmniRoute)"
     case codeCraft = "CodeCraft (Claude Opus 5.5)"
     case artBloom = "ArtBloom (Claude Opus 5.5)"
     case geminiArgon = "OpenRouter (Gemini 4 Argon)"
@@ -66,6 +67,18 @@ class AppState: ObservableObject {
 
     func checkClaudeStatus() {
         self.isClaudeRunning = ConfigManager.shared.isClaudeRunning()
+        if self.isClaudeRunning {
+            if self.baseUrl.contains("127.0.0.1:8080") || self.baseUrl.contains("localhost:8080") {
+                if !ProxyManager.shared.isRunning {
+                    let targetM = ProxyManager.shared.targetModel.isEmpty ? "high-availability" : ProxyManager.shared.targetModel
+                    ProxyManager.shared.startProxy(
+                        target: ProxyManager.shared.targetUrl,
+                        localPort: ProxyManager.shared.port,
+                        targetModel: targetM
+                    )
+                }
+            }
+        }
     }
 
     func refreshAll() {
@@ -97,6 +110,19 @@ class AppState: ObservableObject {
     func applyPreset(_ preset: PresetKind) {
         self.selectedPreset = preset
         switch preset {
+        case .highAvailability:
+            self.profileId = "00000000-0000-4000-8000-000000157215"
+            self.profileName = "High Availability (OmniRoute)"
+            self.baseUrl = "http://127.0.0.1:8080"
+            self.apiKey = ""
+            self.authScheme = "bearer"
+            self.wireModel = "claude-3-5-sonnet"
+            self.displayLabel = "High Availability (OmniRoute)"
+            self.modelDiscoveryEnabled = false
+            ProxyManager.shared.targetUrl = "http://209.46.123.170:20128/v1"
+            ProxyManager.shared.targetModel = "high-availability"
+            ProxyManager.shared.syncConfigFile()
+
         case .codeCraft:
             self.profileId = "00000000-0000-4000-8000-000000157212"
             self.profileName = "CodeCraft (Claude Opus 5.5)"

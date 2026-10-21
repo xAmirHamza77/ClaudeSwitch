@@ -14,7 +14,11 @@
 		</data>
 		<key>Resources/proxy_daemon.py</key>
 		<data>
-		n3Td9yDXT19hst2NqPdbiNRd18c=
+		+oAXLzKLPTvfIO2yiVpa4iB84Ac=
+		</data>
+		<key>Resources/proxy_watchdog.py</key>
+		<data>
+		OrpoEkF9KIuZI32K1tcfMtqtjPE=
 		</data>
 	</dict>
 	<key>files2</key>
@@ -37,7 +41,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			C6HRCXDL/oLIojq0ZgVjJ9y6nI6JVFXbE+g3n1Do02g=
+			TsyV7uLVPqgaiQXr+MZOpMDEYqzcrLTujmfnxuJMlC4=
+			</data>
+		</dict>
+		<key>Resources/proxy_watchdog.py</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			qD+DqLDG0OX61uaIc71YU2jFDmwsDKUbIu0hh2w1yIQ=
 			</data>
 		</dict>
 	</dict>

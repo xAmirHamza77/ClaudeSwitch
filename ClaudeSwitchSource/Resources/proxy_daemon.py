@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import sys
+import os
 import argparse
 import http.server
 import socketserver
@@ -20,6 +21,28 @@ class FastProxyHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     target_url = "http://127.0.0.1:8000"
     target_model = ""
+    config_file = os.path.expanduser("~/.claude_proxy_config.json")
+    last_config_mtime = 0
+
+    @classmethod
+    def check_reload_config(cls):
+        if not cls.config_file or not os.path.exists(cls.config_file):
+            return
+        try:
+            mtime = os.path.getmtime(cls.config_file)
+            if mtime > cls.last_config_mtime:
+                cls.last_config_mtime = mtime
+                with open(cls.config_file, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                if "target_url" in cfg and cfg["target_url"]:
+                    cls.target_url = cfg["target_url"]
+                if "target_model" in cfg:
+                    cls.target_model = cfg["target_model"]
+                sys.stdout.write(f"[{time.strftime('%H:%M:%S')}] 🔄 Reloaded proxy config: target={cls.target_url}, model={cls.target_model}\n")
+                sys.stdout.flush()
+        except Exception as e:
+            sys.stderr.write(f"[{time.strftime('%H:%M:%S')}] ⚠️ Error reading config {cls.config_file}: {e}\n")
+            sys.stderr.flush()
 
     def log_message(self, format, *args):
         ts = time.strftime("%H:%M:%S")
@@ -46,7 +69,36 @@ class FastProxyHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def _estimate_tokens(self, body_bytes):
+        if not body_bytes:
+            return 1
+        try:
+            data = json.loads(body_bytes.decode("utf-8"))
+            total_chars = 0
+            if "system" in data:
+                sys_val = data["system"]
+                if isinstance(sys_val, str):
+                    total_chars += len(sys_val)
+                elif isinstance(sys_val, list):
+                    for b in sys_val:
+                        if isinstance(b, dict):
+                            total_chars += len(b.get("text", ""))
+            for m in data.get("messages", []):
+                c = m.get("content", "")
+                if isinstance(c, str):
+                    total_chars += len(c)
+                elif isinstance(c, list):
+                    for b in c:
+                        if isinstance(b, dict):
+                            total_chars += len(b.get("text", ""))
+            for t in data.get("tools", []):
+                total_chars += len(json.dumps(t))
+            return max(1, total_chars // 4)
+        except Exception:
+            return 10
+
     def _forward(self):
+        self.check_reload_config()
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length) if content_length > 0 else None
 
@@ -73,11 +125,42 @@ class FastProxyHandler(http.server.BaseHTTPRequestHandler):
             except Exception:
                 pass
 
+        # Handle health check endpoint for Claude Desktop
+        if self.path.startswith("/api/hello"):
+            resp = b'{"status":"ok"}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(resp)) if self.command != "HEAD" else "0")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(resp)
+                self.wfile.flush()
+            return
+
+        # Handle token count endpoint locally if provider doesn't implement it
+        if "count_tokens" in self.path:
+            tokens = self._estimate_tokens(body)
+            resp = json.dumps({"input_tokens": tokens}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
+            self.wfile.flush()
+            self.log_message("Handled count_tokens locally: %d tokens", tokens)
+            return
+
         if self._is_openai_target() and body:
             self._forward_openai_bridge(body, tool_map)
             return
 
-        target = self.target_url.rstrip("/") + self.path
+        clean_target = self.target_url.rstrip("/")
+        req_path = self.path
+        if clean_target.endswith("/v1") and req_path.startswith("/v1/"):
+            req_path = req_path[3:]
+        target = clean_target + req_path
 
         # Forward request headers (excluding hop-by-hop headers)
         fwd_headers = {}
@@ -413,16 +496,28 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
 def main():
     parser = argparse.ArgumentParser(description="Claude Desktop High-Performance HTTP Proxy")
     parser.add_argument("--port", type=int, default=8080, help="Local port to listen on (127.0.0.1)")
-    parser.add_argument("--target", type=str, required=True, help="Remote or LAN HTTP endpoint URL")
+    parser.add_argument("--target", type=str, default="", help="Remote or LAN HTTP endpoint URL")
     parser.add_argument("--target-model", type=str, default="", help="Optional model ID to rewrite in request body")
+    parser.add_argument("--config", type=str, default="", help="Path to config json file")
     args = parser.parse_args()
 
-    FastProxyHandler.target_url = args.target
-    FastProxyHandler.target_model = args.target_model
+    if args.config:
+        FastProxyHandler.config_file = args.config
+
+    FastProxyHandler.check_reload_config()
+
+    if args.target:
+        FastProxyHandler.target_url = args.target
+    if args.target_model:
+        FastProxyHandler.target_model = args.target_model
+
+    if not FastProxyHandler.target_url:
+        FastProxyHandler.target_url = "http://127.0.0.1:8000"
+
     server_address = ("127.0.0.1", args.port)
 
-    rewrite_info = f" (Rewriting model to '{args.target_model}')" if args.target_model else ""
-    sys.stdout.write(f"🚀 High-Performance Proxy started on http://127.0.0.1:{args.port} -> Forwarding to {args.target}{rewrite_info}\n")
+    rewrite_info = f" (Rewriting model to '{FastProxyHandler.target_model}')" if FastProxyHandler.target_model else ""
+    sys.stdout.write(f"🚀 High-Performance Proxy started on http://127.0.0.1:{args.port} -> Forwarding to {FastProxyHandler.target_url}{rewrite_info}\n")
     sys.stdout.flush()
 
     try:

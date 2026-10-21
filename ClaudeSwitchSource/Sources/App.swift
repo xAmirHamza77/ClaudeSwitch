@@ -20,6 +20,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDele
 
         setupStatusItem()
         autoStartProxyIfActiveProfileUsesLoopback()
+
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(didLaunchApplicationNotification(_:)),
+            name: NSWorkspace.didLaunchApplicationNotification,
+            object: nil
+        )
+    }
+
+    @objc func didLaunchApplicationNotification(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        if app.bundleIdentifier == "com.anthropic.claudefordesktop" || app.localizedName == "Claude" {
+            autoStartProxyIfActiveProfileUsesLoopback()
+        }
     }
 
     func autoStartProxyIfActiveProfileUsesLoopback() {
@@ -27,8 +41,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDele
         if let activeId = state.activeProfileId,
            let cfg = ConfigManager.shared.loadProfile(id: activeId) {
             if cfg.inferenceGatewayBaseUrl.contains("127.0.0.1:8080") || cfg.inferenceGatewayBaseUrl.contains("localhost:8080") {
+                ProxyManager.shared.syncConfigFile()
+                ProxyManager.shared.ensureLaunchAgentInstalled()
                 if !ProxyManager.shared.isRunning {
-                    let targetM = ProxyManager.shared.targetModel.isEmpty ? "antigravity/claude-sonnet-4-6" : ProxyManager.shared.targetModel
+                    let targetM = ProxyManager.shared.targetModel.isEmpty ? "high-availability" : ProxyManager.shared.targetModel
                     ProxyManager.shared.startProxy(
                         target: ProxyManager.shared.targetUrl,
                         localPort: ProxyManager.shared.port,
