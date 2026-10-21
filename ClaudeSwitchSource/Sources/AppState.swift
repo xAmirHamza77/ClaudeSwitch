@@ -67,18 +67,7 @@ class AppState: ObservableObject {
 
     func checkClaudeStatus() {
         self.isClaudeRunning = ConfigManager.shared.isClaudeRunning()
-        if self.isClaudeRunning {
-            if self.baseUrl.contains("127.0.0.1:8080") || self.baseUrl.contains("localhost:8080") {
-                if !ProxyManager.shared.isRunning {
-                    let targetM = ProxyManager.shared.targetModel.isEmpty ? "high-availability" : ProxyManager.shared.targetModel
-                    ProxyManager.shared.startProxy(
-                        target: ProxyManager.shared.targetUrl,
-                        localPort: ProxyManager.shared.port,
-                        targetModel: targetM
-                    )
-                }
-            }
-        }
+        ProxyManager.shared.checkIfAlreadyRunning()
     }
 
     func refreshAll() {
@@ -103,6 +92,12 @@ class AppState: ObservableObject {
             if let firstModel = cfg.inferenceModels?.first {
                 self.wireModel = firstModel.name
                 self.displayLabel = firstModel.labelOverride ?? firstModel.name
+            }
+
+            if activeId == "00000000-0000-4000-8000-000000157215" {
+                ProxyManager.shared.targetUrl = "http://209.46.123.170:20128/v1"
+                ProxyManager.shared.targetModel = "high-availability"
+                ProxyManager.shared.syncConfigFile()
             }
         }
     }

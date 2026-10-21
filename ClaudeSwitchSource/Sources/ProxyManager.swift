@@ -29,8 +29,10 @@ class ProxyManager: ObservableObject {
                 self.targetUrl = tu
                 loadedFromConfig = true
             }
-            if let tm = json["target_model"] as? String, !tm.isEmpty {
+            if let tm = json["target_model"] as? String, !tm.isEmpty && !tm.contains("\n") && !tm.contains("opus") {
                 self.targetModel = tm
+            } else {
+                self.targetModel = "high-availability"
             }
             if let p = json["port"] as? Int, p > 0 {
                 self.port = p
@@ -42,11 +44,16 @@ class ProxyManager: ObservableObject {
             let savedPort = userDefaults.integer(forKey: kPortKey)
             self.port = savedPort > 0 ? savedPort : 8080
             let savedModel = userDefaults.string(forKey: kTargetModelKey)
-            if let m = savedModel, !m.isEmpty {
+            if let m = savedModel, !m.isEmpty && !m.contains("\n") && !m.contains("opus") {
                 self.targetModel = m
             } else {
                 self.targetModel = "high-availability"
+                userDefaults.set("high-availability", forKey: kTargetModelKey)
             }
+        }
+
+        if !self.targetUrl.hasSuffix("/v1") && self.targetUrl.contains("209.46.123.170") {
+            self.targetUrl = "http://209.46.123.170:20128/v1"
         }
 
         syncConfigFile()
@@ -153,8 +160,6 @@ class ProxyManager: ObservableObject {
     }
 
     func startProxy(target: String, localPort: Int, targetModel: String = "") {
-        stopProxy()
-
         self.targetUrl = target
         self.port = localPort
         self.targetModel = targetModel
@@ -166,73 +171,18 @@ class ProxyManager: ObservableObject {
         syncConfigFile()
         ensureLaunchAgentInstalled()
 
-        let scriptPath: String
-        if let bundlePath = Bundle.main.path(forResource: "proxy_daemon", ofType: "py") {
-            scriptPath = bundlePath
-        } else {
-            // Fallback for development / running outside bundle
-            let cwd = FileManager.default.currentDirectoryPath
-            let devPath = "\(cwd)/ClaudeSwitchSource/Resources/proxy_daemon.py"
-            scriptPath = FileManager.default.fileExists(atPath: devPath) ? devPath : "proxy_daemon.py"
-        }
-
-        var procArgs = [scriptPath, "--port", String(localPort), "--target", target]
-        if !targetModel.isEmpty {
-            procArgs.append(contentsOf: ["--target-model", targetModel])
-        }
-
-        let proc = Process()
-        if FileManager.default.fileExists(atPath: "/opt/homebrew/bin/python3") {
-            proc.launchPath = "/opt/homebrew/bin/python3"
-        } else if FileManager.default.fileExists(atPath: "/usr/local/bin/python3") {
-            proc.launchPath = "/usr/local/bin/python3"
-        } else {
-            proc.launchPath = "/usr/bin/python3"
-        }
-        proc.arguments = procArgs
-
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = pipe
-        self.outputPipe = pipe
-        self.process = proc
-
-        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            if let str = String(data: data, encoding: .utf8), !str.isEmpty {
-                DispatchQueue.main.async {
-                    let lines = str.components(separatedBy: "\n").filter { !$0.isEmpty }
-                    self?.logs.append(contentsOf: lines)
-                    if (self?.logs.count ?? 0) > 300 {
-                        self?.logs.removeFirst(100)
-                    }
-                }
-            }
-        }
-
-        proc.terminationHandler = { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.isRunning = false
-                self?.logs.append("⏹ Proxy stopped.")
-            }
-        }
-
-        do {
-            try proc.run()
-            self.isRunning = true
-            self.logs.append("🚀 Proxy started on http://127.0.0.1:\(localPort) -> \(target)")
-        } catch {
-            self.logs.append("❌ Failed to start proxy: \(error.localizedDescription)")
-            self.isRunning = false
-        }
+        self.isRunning = true
+        self.logs.append("🚀 Proxy configured: http://127.0.0.1:\(localPort) -> \(target)")
     }
 
     func stopProxy() {
-        if let proc = process, proc.isRunning {
-            proc.terminate()
-            process = nil
-        }
-        // Also kill any orphan on that port if needed
+        let uid = getuid()
+        let stop = Process()
+        stop.launchPath = "/bin/launchctl"
+        stop.arguments = ["stop", "gui/\(uid)/com.anthropic.claude.proxy"]
+        try? stop.run()
+        stop.waitUntilExit()
+
         let killTask = Process()
         killTask.launchPath = "/bin/bash"
         killTask.arguments = ["-c", "lsof -ti :\(port) | xargs kill -9 2>/dev/null || true"]
@@ -240,6 +190,7 @@ class ProxyManager: ObservableObject {
         killTask.waitUntilExit()
 
         self.isRunning = false
+        self.logs.append("⏹ Proxy stopped.")
     }
 
     deinit {
